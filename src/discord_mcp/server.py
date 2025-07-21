@@ -13,7 +13,7 @@ from mcp.server.stdio import stdio_server
 import websockets
 import json
 import argparse
-from .game import HangmanGame
+from game import HangmanGame
 
 def _configure_windows_stdout_encoding():
     if sys.platform == "win32":
