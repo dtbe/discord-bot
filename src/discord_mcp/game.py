@@ -24,6 +24,7 @@ class HangmanGame:
     HANGMAN_PICS = [
         # State 0: 6 attempts left
         """
+        ☀️
           +---+
           |   |
               |
@@ -34,6 +35,7 @@ class HangmanGame:
         """,
         # State 1: 5 attempts left
         """
+        ☀️
           +---+
           |   |
           😐  |
@@ -44,6 +46,7 @@ class HangmanGame:
         """,
         # State 2: 4 attempts left
         """
+        ☀️
           +---+
           |   |
           😐  |
@@ -54,6 +57,7 @@ class HangmanGame:
         """,
         # State 3: 3 attempts left
         """
+        ☀️
           +---+
           |   |
           😐  |
@@ -64,6 +68,7 @@ class HangmanGame:
         """,
         # State 4: 2 attempts left
         """
+        ☀️
           +---+
           |   |
           😐  |
@@ -74,6 +79,7 @@ class HangmanGame:
         """,
         # State 5: 1 attempt left
         """
+        ☀️
           +---+
           |   |
           😐  |
@@ -84,6 +90,7 @@ class HangmanGame:
         """,
         # State 6: 0 attempts left
         """
+        ☀️
           +---+
           |   |
           💀  |
@@ -146,11 +153,11 @@ class HangmanGame:
             *padded_art_lines,
             "║                               ║",
             "╠═══════════════════════════════╣",
-            f"║  Word:  {display_word.ljust(20)} ║",
+            f"║  Word:  {display_word.ljust(21)} ║",
             "║                               ║",
-            f"║  Incorrect: {incorrect_guesses_str.ljust(16)} ║",
+            f"║  Incorrect: {incorrect_guesses_str.ljust(17)} ║",
             "║                               ║",
-            f"║  Lives: {lives_display.ljust(21)} ║",
+            f"║  Lives: {lives_display.ljust(20)} ║",
             "╚═══════════════════════════════╝"
         ]
         

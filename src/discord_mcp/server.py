@@ -139,8 +139,16 @@ async def on_message(message):
             formatted_content = (
                 f"MESSAGE FROM DISCORD_USER '{message.author.display_name}' "
                 f"in DISCORD_CHANNEL '{message.channel.id}' "
-                f"MSG: \"{message.content}\"\n\n"
-                f"IMPORTANT: You must communicate your response by using the 'edit_message' tool "
+                f"MSG: \"{message.content}\""
+            )
+
+            # Append attachment URLs if they exist
+            if message.attachments:
+                attachment_urls = [att.url for att in message.attachments]
+                formatted_content += "\nATTACHMENTS: " + ", ".join(attachment_urls)
+
+            formatted_content += (
+                f"\n\nIMPORTANT: You must communicate your response by using the 'edit_message' tool "
                 f"on the placeholder message with ID: {thinking_message.id}. "
                 f"Do not use 'ask_followup_question' or 'attempt_completion'. "
                 f"The user is on Discord and will only see the edited message."
