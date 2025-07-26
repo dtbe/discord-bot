@@ -1,2 +1,5 @@
 discord.py>=2.3.0
 mcp>=0.1.0
+google-cloud-vision
+google-generativeai
+aiohttp

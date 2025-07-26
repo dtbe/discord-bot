@@ -1,0 +1,11 @@
+{
+    //"roo-lay.websocket.port": 8082,
+
+    "workbench.colorCustomizations": {
+        "statusBar.background": "#540d70",
+        "statusBar.foreground": "#e7e7e7",
+        "statusBarItem.hoverBackground": "#69108b",
+        "statusBarItem.remoteBackground": "#540d70",
+        "statusBarItem.remoteForeground": "#e7e7e7",
+    },
+}

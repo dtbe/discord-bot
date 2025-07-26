@@ -30,7 +30,7 @@ venv.bak/
 
 # IDE
 .idea/
-.vscode/
+# .vscode/
 *.swp
 *.swo
 
@@ -41,3 +41,9 @@ venv.bak/
 
 # Logs
 *.log
+
+
+src/temp_images/*
+src/analysis_logs/*
+src/ocr_logs/*
+boxwood-builder-391608-a89b3b1f5b63.json

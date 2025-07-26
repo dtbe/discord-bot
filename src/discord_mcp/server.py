@@ -13,25 +13,15 @@ from mcp.server.stdio import stdio_server
 import websockets
 import json
 import argparse
-from game import HangmanGame
+import aiohttp # For downloading images
+import uuid # For unique filenames
+from .game import HangmanGame
+from .vision_analyzer import analyse_image # Import our new module
 
-def _configure_windows_stdout_encoding():
-    if sys.platform == "win32":
-        import io
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
-
-_configure_windows_stdout_encoding()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("discord-mcp-server")
-
-# --- Argument Parsing ---
-parser = argparse.ArgumentParser(description="Run a configurable Discord bot with MCP server and WebSocket.")
-parser.add_argument("--port", type=int, required=True, help="WebSocket port to listen on.")
-parser.add_argument("--channel-var", type=str, required=True, help="Environment variable name for the target channel ID.")
-args = parser.parse_args()
 
 # Discord bot setup
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
@@ -39,9 +29,7 @@ if not DISCORD_TOKEN:
     raise ValueError("DISCORD_TOKEN environment variable is required")
 
 # The only channel the bot will listen to for messages and commands.
-TARGET_CHANNEL_ID = os.getenv(args.channel_var)
-if not TARGET_CHANNEL_ID:
-    raise ValueError(f"Environment variable '{args.channel_var}' for target channel ID is required.")
+TARGET_CHANNEL_ID = None
 
 # Initialize Discord bot with necessary intents
 intents = discord.Intents.default()
@@ -63,6 +51,18 @@ state = BotState()
 
 # Store Discord client reference
 discord_client = None
+
+# Directory to save temporary images
+TEMP_IMAGE_DIR = "temp_images"
+os.makedirs(TEMP_IMAGE_DIR, exist_ok=True)
+
+# Directory to save analysis logs
+ANALYSIS_LOG_DIR = "analysis_logs"
+os.makedirs(ANALYSIS_LOG_DIR, exist_ok=True)
+
+# Directory to save raw OCR text
+OCR_LOG_DIR = "ocr_logs"
+os.makedirs(OCR_LOG_DIR, exist_ok=True)
 
 @bot.event
 async def on_ready():
@@ -102,11 +102,12 @@ async def on_message(message):
     if message.author.bot or str(message.channel.id) != TARGET_CHANNEL_ID:
         return
 
-    # Process commands first
+    # Always process commands first
     await bot.process_commands(message)
 
-    # After processing commands, check if the message is a hangman guess
     channel_id = str(message.channel.id)
+
+    # Handle hangman guesses
     if channel_id in state.active_hangman_games and not message.content.startswith(bot.command_prefix):
         game, game_message = state.active_hangman_games[channel_id]
         
@@ -118,31 +119,28 @@ async def on_message(message):
             if game.is_won() or game.is_lost():
                 del state.active_hangman_games[channel_id]
         
-        # Delete the user's guess message to keep the channel clean
         try:
             await message.delete()
         except discord.errors.Forbidden:
             logger.warning(f"Could not delete message in channel {channel_id}. Missing permissions.")
         return # Stop further processing
 
-    # If it's not a command or a hangman guess, handle as a regular message to the LLM
-    if not message.content.startswith(bot.command_prefix):
+    # If it's not a command, handle as a regular message to the LLM
+    
         logger.info(f"Message from {message.author.name}: '{message.content}'")
 
         # Send an initial "Thinking..." message
-        thinking_message = await message.channel.send(">🤔Thinking...")
+        thinking_message = await message.channel.send("🤔Thinking...")
         
         if state.websocket_client:
             logger.info("Formatting and forwarding message to WebSocket.")
             
-            # Prepend the username to the message content for multi-user context
             formatted_content = (
                 f"MESSAGE FROM DISCORD_USER '{message.author.display_name}' "
                 f"in DISCORD_CHANNEL '{message.channel.id}' "
                 f"MSG: \"{message.content}\""
             )
 
-            # Append attachment URLs if they exist
             if message.attachments:
                 attachment_urls = [att.url for att in message.attachments]
                 formatted_content += "\nATTACHMENTS: " + ", ".join(attachment_urls)
@@ -163,7 +161,7 @@ async def on_message(message):
             await state.websocket_client.send(json.dumps(payload))
         else:
             logger.warning("Cannot forward message: WebSocket is not connected.")
-            await thinking_message.delete() # Delete "Thinking..." message if no client
+            await thinking_message.delete()
 
 # Helper function to ensure Discord client is ready
 def require_discord_client(func):
@@ -759,7 +757,90 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
 
     raise ValueError(f"Unknown tool: {name}")
 
+# New command for image analysis
+@bot.command(name="look")
+async def look(ctx):
+    """
+    Analyzes an attached screenshot using Google Cloud Vision and Gemini.
+    """
+    if not ctx.message.attachments:
+        await ctx.send("Please attach an image to analyse.")
+        return
+
+    # Send initial thinking message
+    thinking_message = await ctx.send("🧐 Looking...")
+
+    try:
+        for attachment in ctx.message.attachments:
+            if "image" in attachment.content_type:
+                # Create a unique filename for the downloaded image
+                image_filename = os.path.join(TEMP_IMAGE_DIR, f"{uuid.uuid4()}_{attachment.filename}")
+                
+                # Download the image
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(attachment.url) as resp:
+                        if resp.status == 200:
+                            with open(image_filename, "wb") as f:
+                                f.write(await resp.read())
+                            logger.info(f"Downloaded image: {image_filename}")
+
+                            # Perform analysis using our new module
+                            analysis_result, ocr_text = analyse_image(image_filename)
+
+                            # Create timestamp for consistent filenames
+                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                            
+                            # Save the full analysis to a markdown file
+                            analysis_log_filename = os.path.join(ANALYSIS_LOG_DIR, f"analysis_{timestamp}.md")
+                            with open(analysis_log_filename, "w", encoding="utf-8") as f:
+                                f.write(analysis_result)
+                            logger.info(f"Full analysis saved to {analysis_log_filename}")
+
+                            # Save the raw OCR text to a text file
+                            ocr_log_filename = os.path.join(OCR_LOG_DIR, f"ocr_{timestamp}.txt")
+                            with open(ocr_log_filename, "w", encoding="utf-8") as f:
+                                f.write(ocr_text)
+                            logger.info(f"Raw OCR text saved to {ocr_log_filename}")
+
+                            # Truncate for Discord and add a note about the full log
+                            max_length = 1700 # Leave plenty of room for the header and footer
+                            truncated_analysis = analysis_result
+                            if len(truncated_analysis) > max_length:
+                                truncated_analysis = truncated_analysis[:max_length] + "\n... [ANALYSIS TRUNCATED]"
+                            
+                            final_content = (
+                                f"**Screenshot Analysis:**\n{truncated_analysis}\n\n"
+                                f"*Full analysis saved to `{analysis_log_filename}`*\n"
+                                f"*Raw OCR text saved to `{ocr_log_filename}`*"
+                            )
+
+                            # Edit the thinking message with the analysis result
+                            await thinking_message.edit(content=final_content)
+                            
+                            # Clean up the downloaded image
+                            os.remove(image_filename)
+                            logger.info(f"Cleaned up image: {image_filename}")
+                        else:
+                            await thinking_message.edit(content=f"Failed to download image: {resp.status}")
+            else:
+                await thinking_message.edit(content="Attached file is not an image.")
+    except Exception as e:
+        logger.error(f"Error during !look_command: {e}")
+        await thinking_message.edit(content=f"An error occurred during analysis: {e}")
+
 async def main():
+    global TARGET_CHANNEL_ID
+    # --- Argument Parsing ---
+    parser = argparse.ArgumentParser(description="Run a configurable Discord bot with MCP server and WebSocket.")
+    parser.add_argument("--port", type=int, required=True, help="WebSocket port to listen on.")
+    parser.add_argument("--channel-var", type=str, required=True, help="Environment variable name for the target channel ID.")
+    args = parser.parse_args()
+
+    # Set the target channel ID from the parsed arguments
+    TARGET_CHANNEL_ID = os.getenv(args.channel_var)
+    if not TARGET_CHANNEL_ID:
+        raise ValueError(f"Environment variable '{args.channel_var}' for target channel ID is required.")
+
     # Start WebSocket server in the background
     asyncio.create_task(start_websocket_server(args.port))
 
@@ -795,5 +876,3 @@ async def start_websocket_server(port):
     except asyncio.CancelledError:
         logger.info("WebSocket server task cancelled.")
 
-if __name__ == "__main__":
-    asyncio.run(main())
