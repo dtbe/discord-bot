@@ -125,14 +125,22 @@ def analyse_image(image_path: str) -> (str, str):
         return error_message, ""
 
 if __name__ == '__main__':
-    # This allows for testing the module directly.
-    # You would need to create a 'test_image.png' file in the same directory.
-    print("Running a direct test of the vision_analyzer module...")
-    test_image = "test_image.png"
-    if os.path.exists(test_image):
-        final_analysis = analyse_image(test_image)
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Analyse a local image using Google Vision and Gemini.")
+    parser.add_argument("image_path", type=str, help="The path to the local image file to analyse.")
+    args = parser.parse_args()
+
+    if os.path.exists(args.image_path):
+        print(f"Analysing local image: {args.image_path}")
+        analysis, ocr_text = analyse_image(args.image_path)
+        
+        print("\n--- OCR TEXT ---")
+        print(ocr_text)
+        print("------------------\n")
+        
         print("\n--- ANALYSIS RESULT ---")
-        print(final_analysis)
+        print(analysis)
         print("-----------------------")
     else:
-        print(f"Test image '{test_image}' not found. Please create one to test the module.")
+        print(f"Error: Image file not found at '{args.image_path}'")
