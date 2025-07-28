@@ -28,8 +28,8 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 if not DISCORD_TOKEN:
     raise ValueError("DISCORD_TOKEN environment variable is required")
 
-# The only channel the bot will listen to for messages and commands.
-TARGET_CHANNEL_ID = None
+# The channels the bot will listen to for messages and commands.
+TARGET_CHANNEL_IDS = []
 
 # Initialize Discord bot with necessary intents
 intents = discord.Intents.default()
@@ -69,7 +69,7 @@ async def on_ready():
     global discord_client
     discord_client = bot
     logger.info(f"Logged in as {bot.user.name} (ID: {bot.user.id})")
-    logger.info(f"Listening only in channel: {TARGET_CHANNEL_ID}")
+    logger.info(f"Listening in channels: {', '.join(TARGET_CHANNEL_IDS)}")
     logger.info('------')
 
 @bot.command(name="hangman")
@@ -98,8 +98,8 @@ async def hangman(ctx, *args):
 
 @bot.event
 async def on_message(message):
-    # Ignore messages from the bot itself or from any other channel
-    if message.author.bot or str(message.channel.id) != TARGET_CHANNEL_ID:
+    # Ignore messages from the bot itself or from channels not in the target list
+    if message.author.bot or str(message.channel.id) not in TARGET_CHANNEL_IDS:
         return
 
     # Always process commands first
@@ -125,43 +125,53 @@ async def on_message(message):
             logger.warning(f"Could not delete message in channel {channel_id}. Missing permissions.")
         return # Stop further processing
 
-    # If it's not a command, handle as a regular message to the LLM
-    
+    # If it's not a command and not a hangman guess, handle as a regular message to the LLM
+    if not message.content.startswith(bot.command_prefix) and channel_id not in state.active_hangman_games:
         logger.info(f"Message from {message.author.name}: '{message.content}'")
 
-        # Send an initial "Thinking..." message
-        thinking_message = await message.channel.send("🤔Thinking...")
-        
-        if state.websocket_client:
-            logger.info("Formatting and forwarding message to WebSocket.")
+        thinking_message = None # Initialize to None
+        try:
+            # Send an initial "Thinking..." message
+            thinking_message = await message.channel.send("🤔Thinking...")
             
-            formatted_content = (
-                f"MESSAGE FROM DISCORD_USER '{message.author.display_name}' "
-                f"in DISCORD_CHANNEL '{message.channel.id}' "
-                f"MSG: \"{message.content}\""
-            )
+            if state.websocket_client:
+                logger.info("Formatting and forwarding message to WebSocket.")
+                
+                formatted_content = (
+                    f"MESSAGE FROM DISCORD_USER '{message.author.display_name}' "
+                    f"in DISCORD_CHANNEL '{message.channel.id}' "
+                    f"MSG: \"{message.content}\""
+                )
 
-            if message.attachments:
-                attachment_urls = [att.url for att in message.attachments]
-                formatted_content += "\nATTACHMENTS: " + ", ".join(attachment_urls)
+                if message.attachments:
+                    attachment_urls = [att.url for att in message.attachments]
+                    formatted_content += "\nATTACHMENTS: " + ", ".join(attachment_urls)
 
-            formatted_content += (
-                f"\n\nIMPORTANT: You must communicate your response by using the 'edit_message' tool "
-                f"on the placeholder message with ID: {thinking_message.id}. "
-                f"Do not use 'ask_followup_question' or 'attempt_completion'. "
-                f"The user is on Discord and will only see the edited message."
-            )
-            
-            payload = {
-                "type": "message",
-                "content": formatted_content,
-                "channelId": str(message.channel.id),
-                "thinkingMessageId": str(thinking_message.id)
-            }
-            await state.websocket_client.send(json.dumps(payload))
-        else:
-            logger.warning("Cannot forward message: WebSocket is not connected.")
-            await thinking_message.delete()
+                formatted_content += (
+                    f"\n\n**CRITICAL INSTRUCTIONS:**\n"
+                    f"1. **Process All Content:** If the message includes URLs or attachments, you MUST use your tools to fetch and understand their content (e.g., scrape webpages, view images) before responding.\n"
+                    f"2. **Analyse with Intent:** Do not just describe *what* you see. Your primary goal is to understand *why* the user sent this. Consider the context, infer the user's purpose or question, and anticipate their next step. Your response should focus on meaning and insight, not just description.\n"
+                    f"3. **Communicate via Edit:** You MUST use the 'edit_message' tool on the placeholder message with ID: {thinking_message.id}. Do not use any other response tool."
+                )
+                
+                payload = {
+                    "type": "message",
+                    "content": formatted_content,
+                    "channelId": str(message.channel.id),
+                    "thinkingMessageId": str(thinking_message.id)
+                }
+                await state.websocket_client.send(json.dumps(payload))
+            else:
+                logger.warning("Cannot forward message: WebSocket is not connected.")
+                if thinking_message: # Only delete if it was successfully sent
+                    await thinking_message.delete()
+        except Exception as e:
+            logger.error(f"Error processing message for LLM forwarding: {e}", exc_info=True)
+            if thinking_message:
+                try:
+                    await thinking_message.edit(content=f"An error occurred while processing your message: {e}")
+                except Exception as edit_e:
+                    logger.error(f"Failed to edit thinking message after error: {edit_e}", exc_info=True)
 
 # Helper function to ensure Discord client is ready
 def require_discord_client(func):
@@ -829,17 +839,21 @@ async def look(ctx):
         await thinking_message.edit(content=f"An error occurred during analysis: {e}")
 
 async def main():
-    global TARGET_CHANNEL_ID
+    global TARGET_CHANNEL_IDS
     # --- Argument Parsing ---
     parser = argparse.ArgumentParser(description="Run a configurable Discord bot with MCP server and WebSocket.")
     parser.add_argument("--port", type=int, required=True, help="WebSocket port to listen on.")
-    parser.add_argument("--channel-var", type=str, required=True, help="Environment variable name for the target channel ID.")
+    parser.add_argument("--channel-var", type=str, required=True, help="Environment variable name for the target channel ID(s).")
     args = parser.parse_args()
 
-    # Set the target channel ID from the parsed arguments
-    TARGET_CHANNEL_ID = os.getenv(args.channel_var)
-    if not TARGET_CHANNEL_ID:
-        raise ValueError(f"Environment variable '{args.channel_var}' for target channel ID is required.")
+    # Set the target channel IDs from the parsed arguments
+    channel_ids_str = os.getenv(args.channel_var)
+    if not channel_ids_str:
+        raise ValueError(f"Environment variable '{args.channel_var}' for target channel ID(s) is required.")
+    
+    TARGET_CHANNEL_IDS = [id.strip() for id in channel_ids_str.split(',')]
+    if not TARGET_CHANNEL_IDS or not all(TARGET_CHANNEL_IDS):
+        raise ValueError(f"Environment variable '{args.channel_var}' must contain at least one valid channel ID.")
 
     # Start WebSocket server in the background
     asyncio.create_task(start_websocket_server(args.port))

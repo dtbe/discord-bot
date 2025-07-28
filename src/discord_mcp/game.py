@@ -139,7 +139,7 @@ class HangmanGame:
         
         # Split the hangman art into lines and pad it for centering
         hangman_art_lines = self.HANGMAN_PICS[hangman_art_index].strip().split('\n')
-        padded_art_lines = [f"║ {line.ljust(29)} ║" for line in hangman_art_lines]
+        padded_art_lines = [f"║ {line.ljust(28)} ║" for line in hangman_art_lines]
         
         lives_display = '❤️' * self.attempts_left + '🖤' * (len(self.HANGMAN_PICS) - 1 - self.attempts_left)
         incorrect_guesses_str = ' '.join(sorted(self.guesses_incorrect))
@@ -157,7 +157,7 @@ class HangmanGame:
             "║                               ║",
             f"║  Incorrect: {incorrect_guesses_str.ljust(17)} ║",
             "║                               ║",
-            f"║  Lives: {lives_display.ljust(20)} ║",
+            f"║  Lives: {lives_display.ljust(18)} ║",
             "╚═══════════════════════════════╝"
         ]
         

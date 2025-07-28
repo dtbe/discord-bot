@@ -84,9 +84,9 @@ def analyze_image_with_gemini(image_path: str, ocr_text: str) -> str:
     prompt = (
         "Analyse the following image. Here is the text extracted from it, which you can "
         "trust as accurate. Based on both the image and the text, provide a helpful "
-        "analysis. What can you see? What might the user be trying to achieve? "
+        "analysis. Think about - What can you see? What might the user be trying to achieve? What are they doing right now? What advice can you offer to help? "
         "Be insightful and proactive.\n\n"
-        "IMPORTANT: Your entire analysis must be detailed but concise, and strictly under 1800 characters. "
+        "IMPORTANT: Your entire analysis must be detailed but concise, and strictly under 1000 characters. "
         "Focus on the most valuable takeaways and use the available space to its full potential.\n\n"
         f"--- OCR TEXT ---\n{ocr_text}\n--- END OCR TEXT ---"
     )
